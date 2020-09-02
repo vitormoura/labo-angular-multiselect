@@ -1,0 +1,43 @@
+<h1>Remplacement multi-select</h1>
+
+<div [formGroup]="formGroup">
+  <p>
+    <label>Nombre Téléphones</label>
+    <input type="number" value="0" formControlName="qttTelephones" />
+  </p>
+
+  <table formArrayName="tableauTelephones" class="table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Description</th>
+        <th>Permutation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr
+        *ngFor="let fg of lignesTableauTelephones; index as pos"
+        [formGroup]="fg"
+      >
+        <td>
+          {{ fg.controls.id.value }}
+        </td>
+        <td>
+          {{ fg.controls.description.value }}
+        </td>
+        <td>
+          <select formControlName="permutation">
+            <option [value]="PAS_DE_SELECTION">Selectionez une option</option>
+            <option
+              *ngFor="let o of recupererOptionsDispoPour(fg.controls.id.value)"
+              [value]="o.id"
+
+            >
+              {{ o.id === fg.controls.id.value ? 'Pas de permutation' : o.description }}
+            </option>
+          </select>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
