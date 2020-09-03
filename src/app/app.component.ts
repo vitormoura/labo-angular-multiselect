@@ -1,18 +1,18 @@
-import { Component } from '@angular/core';
-import { FormGroup, FormBuilder, FormArray } from '@angular/forms';
+import { Component, OnInit } from '@angular/core';
+import {
+  FormGroup,
+  FormBuilder,
+  FormArray,
+  ControlContainer,
+} from '@angular/forms';
 import { range } from 'rxjs';
-
-export interface IOptionPermutation {
-  id: string;
-  description: string;
-  choisiePar: string | null;
-}
+import { TypeofExpr } from '@angular/compiler';
 
 export interface IValueLigneTableauTelephones {
   id: string;
   description: string;
   permutation: string;
-  choisiePar: string;
+  permutationTemp: string;
 }
 
 @Component({
@@ -20,21 +20,21 @@ export interface IValueLigneTableauTelephones {
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.scss'],
 })
-export class AppComponent {
+export class AppComponent implements OnInit {
   title = 'labo-multiselect';
 
   PAS_DE_SELECTION = '';
-  PAS_CHOISIE_VALUE = '';
 
   formGroup = {} as FormGroup;
-  optionsDisponibles = [] as IOptionPermutation[];
+  optionsDisponibles = [] as string[];
+  refTimeoutMaj = undefined as number;
 
-  constructor(private fb: FormBuilder) {}
-
-  get lignesTableauTelephones() {
+  get lignesTableauTelephones(): FormGroup[] {
     return (this.formGroup.controls.tableauTelephones as FormArray)
       .controls as FormGroup[];
   }
+
+  constructor(private fb: FormBuilder) {}
 
   ngOnInit(): void {
     this.formGroup = this.fb.group({
@@ -49,120 +49,136 @@ export class AppComponent {
     this.formGroup.controls.qttTelephones.setValue(5);
   }
 
-  recupererOptionsDispoPour(id: string): IOptionPermutation[] {
-    const self = this.recupererOptionParValue(id);
+  recupererOptionsDispoPour(ligne: IValueLigneTableauTelephones): string[] {
+    const opts = [...this.optionsDisponibles];
 
-    return [
-      self,
-      ...this.optionsDisponibles.filter(
-        (o) =>
-          o.id !== id &&
-          (o.choisiePar === this.PAS_CHOISIE_VALUE || o.choisiePar === id)
-      ),
-    ];
+    // L'option deja selecionée par la ligne doit s'afficher aussi
+    // (elle n'est plus presente dans la liste d'options disponibles)
+    if (ligne.permutation) {
+      opts.unshift(ligne.permutation);
+    }
+
+    // Si l'option "Pas de permu" est dispo, il faut l'afficher en premier
+    const posLigne = opts.indexOf(ligne.id);
+
+    if (posLigne >= 0) {
+      const opt = opts[posLigne];
+      opts.splice(posLigne, 1);
+      opts.unshift(opt);
+    }
+
+    return opts;
   }
 
-  traiterChangementPermutation(
-    id: string,
-    idPermutChoisi: string,
-    selectionAuto: boolean
-  ) {
-    console.log(
-      `changement ligne ${id} (${selectionAuto ? 'auto' : 'manual'})`,
-      idPermutChoisi
-    );
+  majEtatPermutationsTableau(): void {
+    const lignes = this.formGroup.controls.tableauTelephones
+      .value as IValueLigneTableauTelephones[];
 
-    const op = this.recupererOptionParValue(id);
-    const ligne = this.recupererFormGroupTableauPar(id);
-    const choisieAuparavantPar = op.choisiePar;
+    const etatDesire = {
+      lignesParId: lignes.reduce(
+        (p, c) => Object.assign(p, { [c.id]: Object.assign({}, c) }),
+        {}
+      ) as { [key: string]: IValueLigneTableauTelephones },
+      optionsDisponibles: [...this.optionsDisponibles],
+    };
 
-    if (choisieAuparavantPar) {
-      const oo = this.recupererFormGroupTableauPar(choisieAuparavantPar);
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-      if (oo) {
-        const uu = this.recupererOptionParValue(choisieAuparavantPar);
-        uu.choisiePar = this.PAS_CHOISIE_VALUE;
+    // Le bonheur ^_^
 
-        if (uu.choisiePar === id) {
-          oo.controls.permutation.setValue(this.PAS_CHOISIE_VALUE);
-        }
+    const zeroVersOption = (id: string, permu: string) => {
+      const pos = etatDesire.optionsDisponibles.indexOf(permu);
+
+      if (pos >= 0) {
+        console.log(`zero>option (${id} -> ${permu})`);
+
+        etatDesire.optionsDisponibles.splice(pos, 1);
+
+        etatDesire.lignesParId[id].permutation = permu;
+        etatDesire.lignesParId[id].permutationTemp = permu;
+
+        verifierAutoSelection();
       }
-    }
+    };
 
-    if (idPermutChoisi === this.PAS_DE_SELECTION) {
-      op.choisiePar = this.PAS_CHOISIE_VALUE;
-    } else {
-      // Option valide
-      const optionSelectionee = this.recupererOptionParValue(idPermutChoisi);
-      optionSelectionee.choisiePar = id;
-    }
+    const optionVersZero = (id: string, permuCourante: string) => {
+      console.log(`option>zero (${id} -> de ${permuCourante} vers zero)`);
+      etatDesire.optionsDisponibles.push(permuCourante);
+      etatDesire.lignesParId[id].permutation = this.PAS_DE_SELECTION;
+    };
 
-    //if (choisi) this.majLignesTableauSansPermutation(selectionAuto);
+    const optionVersOption = (
+      id: string,
+      permuCourante: string,
+      nouvellePermu: string
+    ) => {
+      console.log(
+        `option>option (${id} -> de ${permuCourante} vers ${nouvellePermu})`
+      );
+      optionVersZero(id, permuCourante);
+      zeroVersOption(id, nouvellePermu);
+    };
 
-    console.table(this.optionsDisponibles);
-  }
+    const verifierAutoSelection = () => {
+      // Un seule option disponible?
+      if (etatDesire.optionsDisponibles.length === 1) {
+        const optionSansPermu = Object.keys(etatDesire.lignesParId).find(
+          (k) => etatDesire.lignesParId[k].permutation === this.PAS_DE_SELECTION
+        );
 
-  majLignesTableauSansPermutation(selectionAuto: boolean) {
-    /*
-    if (!selectionAuto) {
-      return;
-    }
+        console.log(
+          `selection auto ${optionSansPermu} -> ${etatDesire.optionsDisponibles[0]}`
+        );
 
-    const array = this.formGroup.controls.tableauTelephones as FormArray;
-    const fgsSansPermutation = array.controls
-      .map((c) => c as FormGroup)
-      .filter((c) => c.controls.permutation.value === this.PAS_DE_SELECTION);
-
-    if (fgsSansPermutation.length === 1) {
-      const fg = fgsSansPermutation[0] as FormGroup;
-      const id = fg.controls.id.value;
-      const optionsDispo = this.recupererOptionsDispoPour(id);
-
-      if (optionsDispo.length === 1) {
-        this.traiterChangementPermutation(id, optionsDispo[0].id, true);
+        zeroVersOption(optionSansPermu, etatDesire.optionsDisponibles[0]);
       }
-    }
-    */
-  }
+    };
 
-  desactiverOption(id: string, selectionAuto: boolean) {
-    const op = this.recupererOptionParValue(id);
-    const array = this.formGroup.controls.tableauTelephones as FormArray;
+    lignes.forEach((c) => {
+      const permuAnterieur = c.permutation;
+      const permuCourante = c.permutationTemp;
 
-    if (!op) {
-      return;
-    }
-
-    if (!selectionAuto) {
-      op.choisiePar = this.PAS_CHOISIE_VALUE;
-
-      const fg = array.controls.find(
-        (c) => (c as FormGroup).controls.permutation.value === id
-      ) as FormGroup;
-
-      if (fg) {
-        fg.controls.permutation.setValue(this.PAS_DE_SELECTION);
+      if (permuAnterieur === permuCourante) {
+        return;
       }
-    }
+
+      if (
+        permuAnterieur === this.PAS_DE_SELECTION &&
+        permuCourante !== this.PAS_DE_SELECTION
+      ) {
+        zeroVersOption(c.id, permuCourante);
+      } else if (
+        permuAnterieur !== this.PAS_DE_SELECTION &&
+        permuCourante === this.PAS_DE_SELECTION
+      ) {
+        optionVersZero(c.id, permuAnterieur);
+      } else {
+        optionVersOption(c.id, permuAnterieur, permuCourante);
+      }
+    });
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    // Maj l'état des lignes du tableau
+    this.lignesTableauTelephones.forEach((fg) => {
+      const etatDesireLigne = etatDesire.lignesParId[fg.controls.id.value];
+
+      fg.controls.permutation.setValue(etatDesireLigne.permutation);
+      fg.controls.permutationTemp.setValue(etatDesireLigne.permutationTemp, {
+        emitEvent: false, //il faut éviter cet événement , sinon on va tomber dans une boucle infinie
+      });
+    });
+
+    // Maj les options disponibles
+    this.optionsDisponibles = etatDesire.optionsDisponibles;
+
+    console.log('options disponibles', this.optionsDisponibles);
+    console.table(this.formGroup.controls.tableauTelephones.value);
   }
 
-  ajouterOptionPermutation(reg: IOptionPermutation) {
-    this.optionsDisponibles.push(reg);
-  }
+  ////////////////////////////////////////
 
-  recupererOptionParValue(value: string) {
-    return this.optionsDisponibles.find((o) => o.id === value);
-  }
-
-  recupererFormGroupTableauPar(id: string) {
-    const array = this.formGroup.controls.tableauTelephones as FormArray;
-
-    return array.controls.find(
-      (c) => (c as FormGroup).controls.id.value === id
-    ) as FormGroup;
-  }
-
-  majTableauTelephones(qttLignes: number) {
+  majTableauTelephones(qttLignes: number): void {
     const array = this.formGroup.controls.tableauTelephones as FormArray;
     const qttPourCreer = qttLignes - array.controls.length;
 
@@ -178,54 +194,72 @@ export class AppComponent {
       // Valeur positive, il faut ajouter des lignes
 
       range(array.length, qttPourCreer).forEach((n) => {
-        const fg = this.creerNouveauFormGroupTelephone(n);
-        const reg = fg.value as IValueLigneTableauTelephones;
+        const id = `Téléphone ${n + 1}`;
+        const fg = this.creerNouveauFormGroupTelephone(id, id);
+
+        //Liste globale d'options
+        this.optionsDisponibles.push(fg.controls.id.value);
 
         array.push(fg);
-
-        this.ajouterOptionPermutation({
-          id: reg.id,
-          description: reg.description,
-          choisiePar: this.PAS_CHOISIE_VALUE,
-        });
       });
+
+      //TODO: il faut choisir automatiquement des options pour des lignes ajoutées ?
+      //...
     } else {
-      //Valeur negative, il faut enlèver les dernières lignes
+      // Valeur negative, il faut enlèver les dernières lignes
 
       range(0, Math.abs(qttPourCreer)).forEach((n) => {
         const posDerniereLigne = array.length - 1;
-        const fg = array.at(posDerniereLigne);
+        const fg = array.at(posDerniereLigne) as FormGroup;
 
-        // TODO: Appliquer qq logique avant supprimer la ligne
+        this.supprimerOptionPermutation(fg);
 
         array.removeAt(posDerniereLigne);
-        this.supprimerOptionPermutation(posDerniereLigne);
       });
     }
-
-    console.table(this.optionsDisponibles);
   }
 
-  creerNouveauFormGroupTelephone(pos: number) {
-    const id = `Téléphone ${pos + 1}`;
-
+  creerNouveauFormGroupTelephone(id: string, description: string): FormGroup {
     const fb = this.fb.group({
-      id: id,
-      description: `Téléphone ${pos + 1}`,
-      permutation: '',
-      choisiePar: this.PAS_CHOISIE_VALUE,
+      id,
+      description,
+      permutation: this.PAS_DE_SELECTION,
+      permutationTemp: this.PAS_DE_SELECTION,
     } as IValueLigneTableauTelephones);
 
-    fb.controls.permutation.valueChanges.subscribe((idPermutChoisi) => {
-      this.traiterChangementPermutation(id, idPermutChoisi, false);
+    fb.controls.permutationTemp.valueChanges.subscribe((idPermutChoisi) => {
+      if (this.refTimeoutMaj) {
+        clearTimeout(this.refTimeoutMaj);
+      }
+
+      //Il faut reporter l'execution pour nous assurer que il y aura seulement une maj d'état par fois
+      this.refTimeoutMaj = setTimeout(() => {
+        this.majEtatPermutationsTableau();
+      }, 0);
     });
 
     return fb;
   }
 
-  supprimerOptionPermutation(pos: number) {
-    const op = this.optionsDisponibles[pos];
+  supprimerOptionPermutation(ligne: FormGroup): void {
+    const id = ligne.controls.id.value;
 
-    this.optionsDisponibles.splice(pos, 1);
+    //Enlève l'option courante selectionnée par la ligne
+    ligne.controls.permutationTemp.setValue(this.PAS_DE_SELECTION, {
+      emitEvent: false,
+    });
+    this.majEtatPermutationsTableau();
+
+    //Et si l'option est selectionné par qqn, reinitialise son état aussi
+    this.lignesTableauTelephones
+      .filter((fg) => fg.controls.permutation.value === id)
+      .forEach((fg) => {
+        fg.controls.permutationTemp.setValue(this.PAS_DE_SELECTION, {
+          emitEvent: false,
+        });
+        this.majEtatPermutationsTableau();
+      });
+
+    this.optionsDisponibles = this.optionsDisponibles.filter((x) => x !== id);
   }
 }

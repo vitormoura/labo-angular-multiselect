@@ -26,14 +26,13 @@
           {{ fg.controls.description.value }}
         </td>
         <td>
-          <select formControlName="permutation">
+          <select formControlName="permutationTemp">
             <option [value]="PAS_DE_SELECTION">Selectionez une option</option>
             <option
-              *ngFor="let o of recupererOptionsDispoPour(fg.controls.id.value)"
-              [value]="o.id"
-
+              *ngFor="let opt of recupererOptionsDispoPour(fg.value)"
+              [value]="opt"
             >
-              {{ o.id === fg.controls.id.value ? 'Pas de permutation' : o.description }}
+              {{ opt === fg.controls.id.value ? "Pas de permutation" : opt }}
             </option>
           </select>
         </td>
